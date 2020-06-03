@@ -56,20 +56,28 @@ namespace Felfel.Logging
 
                 if (logEntry == null)
                 {
-                    //something went wrong
+                    //no log entry to unwrap - assume just a regular Serilog message that didn't come through the custom API
+                    var logLevel = ParseLevel(logEvent.Level);
                     logEntry = new LogEntry
                     {
                         TimestampOverride = logEvent.Timestamp,
-                        LogLevel = LogLevel.Fatal,
+                        LogLevel = logLevel,
+                        Message = logEvent.RenderMessage(),
                         Exception = logEvent.Exception,
-                        Context = $"{nameof(HttpSink)}.Error",
-                        Payload = new
-                        {
-                            Error = "Could not unwrap log entry.",
-                            Message = logEvent.RenderMessage(),
-                            Level = logEvent.Level.ToString()
-                        }
+                        Context = $"{AppName}.{logLevel}"
                     };
+                }
+
+                //extract all other properties and add them to the context object
+                var props = logEvent.Properties.Where(p => !p.Key.Equals(Logger.EntryPropertyName));
+                foreach (var prop in props)
+                {
+                    var scalarValue = prop.Value as ScalarValue;
+                    if (scalarValue != null)
+                    {
+                        //insert (override duplicate keys)
+                        logEntry.ContextData[prop.Key] = scalarValue.Value;
+                    }
                 }
 
                 var dto = LogEntryParser.ParseLogEntry(logEntry, AppName, Environment);
@@ -78,6 +86,24 @@ namespace Felfel.Logging
             catch (Exception e)
             {
                 return ProcessLoggingException(e);
+            }
+        }
+
+        private LogLevel ParseLevel(LogEventLevel level)
+        {
+            switch (level)
+            {
+                case LogEventLevel.Debug:
+                case LogEventLevel.Verbose:
+                    return LogLevel.Debug;
+                case LogEventLevel.Information:
+                    return LogLevel.Info;
+                case LogEventLevel.Warning:
+                    return LogLevel.Warning;
+                case LogEventLevel.Error:
+                    return LogLevel.Error;
+                default:
+                    return LogLevel.Fatal;
             }
         }
 
